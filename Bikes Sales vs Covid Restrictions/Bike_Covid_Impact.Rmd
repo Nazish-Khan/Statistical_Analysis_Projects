@@ -1,0 +1,707 @@
+---
+title: "Descriptive Analysis of London bikes hires w.r.t covid resrictions"
+author: Nazish Khan
+csl: "https://www.zotero.org/styles/harvard-cite-them-right"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    
+---
+
+-------------------------------------------------------------------------------------------------------------------
+
+# Loading the required libraries
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set()
+library(dplyr)
+library(ggplot2)
+library(knitr) # for table()
+library(Rmisc) # for CI()
+library(emmeans) # for emmeans() and pairs()
+library(gridExtra) # for grid.arrange()
+library(Hmisc)
+library(car)
+library(tidyverse)
+library(kableExtra)
+options(width=100)
+```
+
+# Topic: London Bike Hires and Covid Restrictions
+
+## Data Dictionary
+This section will showcase bikes hires analysis past covid-19 and impact of several features such as work from home, eat out to help out, etc. policies. on the dependent variable i.e. Hires.
+The data dictionary used for this analysis includes information about each variable, such as its variable name, description, and data type.
+
+
+| Variable                       | Description        | Data Type  |
+| ------------------------------ | ----------------------------------------------------------------------------- | ---------- |
+| date                           | Date of data entry                                                            | Date       |
+| Hires                          | Number of hires recorded on the corresponding date                           | Numeric    |
+| schools_closed                 | Binary variable indicating whether schools are closed (0 for 'no', 1 for 'yes') | Numeric    |
+| pubs_closed                    | Binary variable indicating whether pubs are closed (0 for 'no', 1 for 'yes') | Numeric    |
+| shops_closed                   | Binary variable indicating whether shops are closed (0 for 'no', 1 for 'yes') | Numeric    |
+| eating_places_closed           | Binary variable indicating whether eating places are closed (0 for 'no', 1 for 'yes') | Numeric    |
+| stay_at_home                   | Binary variable indicating whether there is a stay-at-home order (0 for 'no', 1 for 'yes') | Numeric    |
+| household_mixing_indoors_banned| Binary variable indicating whether household mixing indoors is banned (0 for 'no', 1 for 'yes') | Numeric    |
+| wfh                            | Binary variable indicating whether there is a work-from-home policy (0 for 'no', 1 for 'yes') | Factor     |
+| rule_of_6_indoors              | Binary variable indicating whether the rule of 6 indoors is in effect (0 for 'no', 1 for 'yes') | Factor     |
+| curfew                         | Binary variable indicating whether there is a curfew (0 for 'no', 1 for 'yes') | Numeric    |
+| eat_out_to_help_out            | Binary variable indicating whether there is an "Eat Out to Help Out" policy (0 for 'no', 1 for 'yes') | Factor |
+| day                            | Day of the week                                                               | Character  |
+| month                          | Month of the year                                                             | Character  |
+| year                           | Year of data collection                                                      | Numeric    |
+
+## Data Load
+```{r, warning=FALSE}
+# Load the CSV file in the bikes dataframe
+bikes <- read.csv("London_COVID_bikes.csv")
+head(bikes,10)
+```
+The dataset includes information on the number of hires and the status of closures, restrictions, and policies on specific dates. Key columns and their meanings are:
+
+date: Represents the date.
+Hires: Indicates the number of hires on each corresponding date.
+schools_closed, pubs_closed, shops_closed, eating_places_closed, stay_at_home, household_mixing_indoors_banned, wfh, rule_of_6_indoors, curfew, eat_out_to_help_out: Binary indicators (0 or 1) for the closure status of various entities and policy implementations.
+day: Represents the day of the week.
+month: Represents the month.
+year: Represents the year.
+
+This dataset provides insights into the interplay between restrictions, policies, and events on specific dates and the corresponding number of hires. It appears suitable for investigating how these factors may influence hiring patterns over time.
+
+## Data Understanding
+Let's check the structure and summary of the dataframe.
+```{r, warning = FALSE}
+#Structure of the data
+str(bikes)
+
+#Summary of data
+summary(bikes)
+```
+
+## Data Preparation
+As we are interested in the effect upon bike hire usage as a result of three elements of the COVID
+response: Work From Home, Rule of 6 Indoors, and the Eat Out to Help Out scheme.
+Also we will explore whether it is appropriate to control for the effect of potential differences between different years, months, and days of the week.
+
+So, there are few steps to be follwed:
+1. Changing the datatype to factor of the character variables
+2. Remove unused columns from the dataframe
+```{r, warning = FALSE}
+#change the datatypes to factor
+bikes$wfh <- factor(bikes$wfh)
+bikes$rule_of_6_indoors <- factor(bikes$rule_of_6_indoors)
+bikes$eat_out_to_help_out <- factor(bikes$eat_out_to_help_out)
+bikes$day <- as.factor(bikes$day)
+bikes$month <- as.factor(bikes$month)
+
+
+#Unused Columns to remove
+columns_to_remove <- c("schools_closed", "pubs_closed", "shops_closed","eating_places_closed","stay_at_home","household_mixing_indoors_banned","curfew")
+
+bikes <- bikes[, -which(names(bikes) %in% columns_to_remove)]
+
+
+#Sort data with date
+sorted_data <- bikes %>% arrange(date)
+```
+
+## Data Integrity and Outliers Handling
+Checking the data distribution for number of bikes hired and handling the outliers to enhance dataset reliability for subsequent analyses.
+```{r message=FALSE, warning=FALSE}
+
+#Checking the integrity of the data
+bikes <- na.omit(bikes)
+
+#Checking for the outliers
+#Create a box plot for the count of hires
+plot1 <- ggplot(bikes, aes(x = 1, y = Hires)) +
+  geom_boxplot(fill = "skyblue", color = "black") +
+  labs(title = "Box Plot of Hires Count",
+       x = "Group",  # Remove x-axis label
+       y = "Count of Hires")
+
+# Create a histogram for the count of hires
+plot2 <- ggplot(bikes, aes(x = Hires)) +
+  geom_histogram(binwidth = 500, fill = "skyblue", alpha = 0.7) +
+  labs(title = "Histogram of Hires Count",
+       x = "Count of Hires",
+       y = "Frequency")
+grid.arrange(plot1, plot2, ncol=2)
+# Removing outliers where hires is greater than 60000 and less equal to zero
+bikes <- bikes[!(bikes$Hires > 60000 | bikes$Hires <= 0), ]
+str(bikes$Hires)
+
+```
+The dataset does not have any NA values.
+While the data cleaning process, outtliers were identified and removed. We have removed 11 outliers from the dataset where the number of hires exceeded 60,000 or was less than or equal to 0. 
+
+## Data Visualisation 
+Identifying Data Pattern & Data Distribution 
+
+```{r,warning=FALSE, results='hide'}
+#Hires trend chart for the year 2010
+# Assuming the "date" column is in Date format
+bikes$date <- as.Date(bikes$date)
+
+#str(bikes)
+
+# Define a function to create the plot for a specific year
+yearly_plot <- function(start_year, end_year) {
+  # Filter data for the specified date range
+  filtered_data <- bikes %>% filter(year >= start_year & year <= end_year)
+
+  # Create a histogram
+  plot_year <- ggplot(filtered_data, aes(x = date, y = Hires, fill = factor(year))) +
+    geom_histogram(stat = "identity", position = "stack", alpha = 0.7, binwidth = 30) +
+    geom_hline(yintercept = mean(bikes$Hires), color = "black", linetype = "dashed") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    labs(title = paste("Distribution of Total Hires in", start_year, "-", end_year),
+         x = "Date",
+         y = "Total Hires",
+         fill = "Year")
+
+  return(plot_year)
+}
+
+# Create individual plots for each year
+plot_1012 <- yearly_plot(2010, 2012)
+plot_1315 <- yearly_plot(2013, 2015)
+plot_1618 <- yearly_plot(2016, 2018)
+plot_1921 <- yearly_plot(2019, 2021)
+plot_2223 <- yearly_plot(2022, 2023)
+```
+
+
+```{r echo=FALSE,}
+# Arrange the plots in a grid
+grid_arranged_plots1 <- grid.arrange(
+  plot_1012, plot_1315
+)
+grid_arranged_plots2 <- grid.arrange(
+  plot_1618, plot_1921
+)
+grid_arranged_plots4 <- grid.arrange(
+  plot_2223
+)
+```
+
+From the above graphs, we can infer few points:
+1. The bikes of hires in year 2011 to 2012 were lesser than the total mean of the bikes. 
+2. The bikes trend is decreasing to increment and decrease in the all the year where we can see a sharp rise in the middle of the year.
+3. In the year 2019, we had less bikes hires compared to the previous year 2018 and next year 2020.
+4. Don't have complete data for year 2023 and year 2010.
+
+To check the pattern in the hires distribution, see the following graph depicting the trend:
+
+```{r, warning=FALSE}
+
+# Define a function to create the plot for a specific month
+monthly_plot <- function(year_var) {
+  # Filter data for the specified date range
+  filtered_data1 <- bikes %>% filter(year == year_var)
+
+  # Create a histogram
+  plot_month <- ggplot(filtered_data1, aes(x = factor(month, levels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")), y = Hires)) +
+    geom_histogram(stat = "identity", position = "stack", alpha = 0.7, binwidth = 15, fill="skyblue")+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    scale_fill_discrete(breaks = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))+
+    labs(title = paste(year_var, "Distribution"),
+         x = "Month",
+         y = "Total Hires",
+         fill = "Year")
+
+  return(plot_month)
+}
+
+# Create individual plots for each year
+plot_2016 <- monthly_plot(2016)
+plot_2017 <- monthly_plot(2017)
+plot_2018 <- monthly_plot(2018)
+plot_2019 <- monthly_plot(2019)
+plot_2020 <- monthly_plot(2020)
+plot_2021 <- monthly_plot(2021)
+plot_2022 <- monthly_plot(2022)
+plot_2023 <- monthly_plot(2023)
+```
+
+
+```{r, echo=FALSE, warning=FALSE}
+# Arrange the plots in a grid
+grid_arranged_plots1 <- grid.arrange(
+  plot_2016, plot_2017,plot_2018, plot_2019, plot_2020,
+  plot_2020, plot_2021,plot_2022, 
+  plot_2023, nrow=3, ncol=3
+)
+
+```
+
+The annual pattern of total bike hires exhibits a consistent trend, typically rising from January to April and experiencing a notable surge from April to July-August. Subsequently, there is a gradual decline in hires from August to December. However, the year 2020 witnessed a significant deviation from this pattern due to the COVID-19 pandemic.
+
+In 2020, hires sharply declined from March to April following the implementation of the Work From Home (WFH) policy on March 17, 2020. The subsequent increase from May to June can be attributed to rental companies assuring hygiene measures and individuals opting for less public transportation during the pandemic. Another noticeable shift occurred in September 2020 with the implementation of the "rule_of_6_indoors" policy, contributing to a spike in hires. Additionally, a brief surge in hires during September was linked to the Eat Out to Help Out policy, although its impact was limited due to its short duration.
+
+## Distribution of WFH, Rule of 6 indoor, & eat out to help out policies over Bike Rentals
+```{r, warning = FALSE}
+# Assuming 'bikes' is your data frame
+grid.arrange(
+ggplot(bikes, aes(x = Hires)) +
+  geom_density(aes(fill = factor(wfh)), alpha = 0.3, color = "black", bw = 500) +
+  labs(title = "Density Plot of Hires by WFH",
+       x = "Hires",
+       y = "Density",
+       fill = "Category"),
+
+ggplot(bikes, aes(x = Hires)) +
+  geom_density(aes(fill = factor(rule_of_6_indoors)), alpha = 0.3, color = "black", bw = 500) +
+  labs(title = "Density Plot of Hires by rule_of_6_indoors",
+       x = "Hires",
+       y = "Density",
+       fill = "Category"),
+
+ggplot(bikes, aes(x = Hires)) +
+  geom_density(aes(fill = factor(eat_out_to_help_out)), alpha = 0.3, color = "black", bw = 500) +
+  labs(title = "Density Plot of Hires by eat_out_to_help_out",
+       x = "Hires",
+       y = "Density",
+       fill = "Category"))
+```
+
+
+```{r, warning = FALSE}
+#Let's perform estimation on the Hires bikes data
+mean_estimate <- mean(bikes$Hires)
+median_estimate <- median(bikes$Hires)
+sd_estimate <- sd(bikes$Hires)
+print(mean_estimate)
+print(median_estimate)
+print(sd_estimate)
+
+```
+
+## Correlation
+Let's find out the correlation between the different variables first
+
+```{r, warning = FALSE}
+#Correlation
+rcorr(as.matrix(select(bikes, Hires, wfh, rule_of_6_indoors, eat_out_to_help_out,year)), type = "pearson")
+```
+**Correlation Matrix:**
+
+*Hires and WFH*: Weak positive relationship (0.07). 
+*Hires and Rule_of_6_Indoors*: Weak positive relationship (0.14). 
+*Hires and Eat_Out_to_Help_Out*: Weak positive relationship (0.08).
+*Hires and Year*: Moderate positive relationship (0.28).
+*WFH and Rule_of_6_Indoors*: Weak positive relationship (0.24).
+*WFH and Eat_Out_to_Help_Out*: Very weak negative relationship (-0.04).
+*Rule_of_6_Indoors and Eat_Out_to_Help_Out*: Very weak negative relationship (-0.01).
+*Year and WFH*: Strong positive relationship (0.70).
+
+*P-Values*: All relationships are statistically significant (p < 0.05), indicating meaningful connections between variables.However, correlation does not imply causation, so I'll further analyse to understand the nature of these relationships.
+
+## Part 1
+
+Analysis of WFH, Rule of 6 indoors, and eat out to help out scheme
+
+### T-test and Linear Model Analysis
+
+#### Work from Home Impact Analysis on Hires
+
+```{r, warning = FALSE}
+# Two-sample t-test for each variable with respect to 'Hires'
+ttest_wfh <- t.test(Hires ~ wfh, data = bikes)
+print(ttest_wfh)
+
+#LM 
+m_wfh <- lm(Hires ~ wfh, data = bikes)
+summary(m_wfh)
+( m_wfh.emm <- emmeans(m_wfh, ~ wfh) )
+```
+
+**NHST approach:**
+A Welch Two Sample t-test reveals a significant difference in means between group 0 and group 1 (t = -4.6446, df = 1653.1, p = 3.677e-06).
+The p-value (3.677e-06) is less than 0.05, suggesting a significant difference.
+The 95% confidence interval for the true difference in means is [-2273.3227, -923.3737].
+The mean number of hires in group 0 is 26,182.37, and in group 1 is 27,780.72.
+
+**Estimation approach:**
+The true difference in means between group 0 and group 1 is likely to fall within the 95% confidence interval of [-2273.3227, -923.3737].
+Mean hires in group 0 is 26,182.37, and in group 1 is 27,780.72.
+These results indicate a statistically significant difference in mean hires between the two groups, with group 1 having a higher mean than group 0.
+
+**This linear regression model suggests:**
+
+Effect of Working from Home (WFH):
+For each unit increase in WFH (going from 0 to 1), there's an estimated increase of 1,598.3 hires.
+The model is statistically significant (p < 0.001).
+
+Prediction:
+When WFH is 0, estimated hires range from 25,876 to 26,488.
+When WFH is 1, estimated hires range from 27,215 to 28,347.
+
+Overall Model Significance:
+The model as a whole is statistically significant (F-statistic: 23.71, p-value: 1.157e-06).
+
+Model Fit:
+The model explains a limited portion of the variation in hires (R-squared: 0.0049).
+
+#### Rule of 6 Indoors Scheme Impact Analysis on Hires
+
+```{r, warning = FALSE}
+ttest_rule <- t.test(Hires ~ rule_of_6_indoors, data = bikes)
+print(ttest_rule)
+
+m_rule6 <- lm(Hires ~ rule_of_6_indoors, data = bikes)
+summary(m_rule6)
+( m_rule6.emm <- emmeans(m_rule6, ~ rule_of_6_indoors) )
+```
+
+**NHST approach:**
+A Welch Two Sample t-test indicates a significant difference in means between group 0 and group 1 (t = -9.3856, df = 98.712, p = 2.455e-15).
+The p-value (2.455e-15) is less than 0.05, indicating a highly significant difference.
+The 95% confidence interval for the true difference in means is [-11,357.219, -7,393.075].
+The mean number of hires in group 0 is 26,356.12, and in group 1 is 35,731.27.
+
+**Estimation approach:**
+The true difference in means between group 0 and group 1 is likely to fall within the 95% confidence interval of [-11,357.219, -7,393.075].
+Mean hires in group 0 is 26,356.12, and in group 1 is 35,731.27.
+These findings indicate a highly significant difference in mean hires between the two groups, with group 1 having a substantially higher mean than group 0.
+
+**This linear regression model indicates:**
+
+Effect of Rule_of_6_Indoors:
+If "rule_of_6_indoors" is 1, there's an estimated increase of 9,375.1 hires.
+The model is highly statistically significant (p < 0.001).
+
+Prediction:
+When "rule_of_6_indoors" is 0, estimated hires range from 26,086 to 26,626.
+When "rule_of_6_indoors" is 1, estimated hires range from 33,841 to 37,621.
+
+Overall Model Significance:
+The model as a whole is highly statistically significant (F-statistic: 92.68, p-value: < 2.2e-16).
+
+Model Fit:
+The model explains a limited portion of the variation in hires (R-squared: 0.01895).
+
+
+#### Eat out to Help Out Scheme Impact Analysis on Hires
+
+```{r, warning = FALSE}
+ttest_eat <- t.test(Hires ~ eat_out_to_help_out, data = bikes)
+print(ttest_eat)
+
+m_eat <- lm(Hires ~ eat_out_to_help_out, data = bikes)
+summary(m_eat)
+( m_eat.emm <- emmeans(m_eat, ~ eat_out_to_help_out) )
+```
+
+**NHST approach:**
+A Welch Two Sample t-test reveals a significant difference in means between group 0 and group 1 (t = -7.4922, df = 27.593, p = 4.043e-08).
+The p-value (4.043e-08) is less than 0.05, indicating a highly significant difference.
+The 95% confidence interval for the true difference in means is [-12,650.233, -7,215.307].
+The mean number of hires in group 0 is 26,485.66, and in group 1 is 36,418.43.
+
+**Estimation approach:**
+The true difference in means between group 0 and group 1 is likely to fall within the 95% confidence interval of [-12,650.233, -7,215.307].
+Mean hires in group 0 is 26,485.66, and in group 1 is 36,418.43.
+These results indicate a highly significant difference in mean hires between the two groups, with group 1 having a considerably higher mean than group 0.
+
+**This linear regression model shows:**
+
+Effect of Eat_Out_to_Help_Out:
+If "eat_out_to_help_out" is 1, there's an estimated increase of 9,932.8 hires.
+The model is highly statistically significant (p < 0.001).
+
+Prediction:
+When "eat_out_to_help_out" is 0, estimated hires range from 26,216 to 26,755.
+When "eat_out_to_help_out" is 1, estimated hires range from 32,896 to 39,940.
+
+Overall Model Significance:
+The model as a whole is highly statistically significant (F-statistic: 30.39, p-value: 3.718e-08).
+
+Model Fit:
+The model explains a limited portion of the variation in hires (R-squared: 0.006293).
+
+### Contrast Analysis
+```{r, warning = FALSE}
+#contrast
+(  m_wfh.contrast <- confint(pairs(m_wfh.emm))  )
+(  m_rule6.contrast <- confint(pairs(m_rule6.emm))  )
+(  m_eat.contrast <- confint(pairs(m_eat.emm))  )
+```
+**Contrast Analysis:**
+This analysis compares the difference in hires when a policy is 0 (not applied) and 1 (applied).
+
+**WFH Contrast (wfh0 - wfh1)**:
+Effect: Working from home (WFH) decreases the estimated number of hires by 1,598.
+
+**Rule_of_6_Indoors Contrast (rule_of_6_indoors0 - rule_of_6_indoors1):**
+Effect: The rule_of_6_indoors policy decreases the estimated number of hires by 9,375.
+
+**Eat_Out_to_Help_Out Contrast (eat_out_to_help_out0 - eat_out_to_help_out1):**
+Effect: The eat_out_to_help_out policy decreases the estimated number of hires by 9,933.
+
+### ANOVA Analysis
+```{r, warning = FALSE}
+#Anova
+anova(m_wfh)
+anova(m_rule6)
+anova(m_eat)
+
+m.hires.intercept <- lm(Hires ~ 1, data = bikes)
+anova(m.hires.intercept, m_wfh)
+anova(m.hires.intercept, m_rule6)
+anova(m.hires.intercept, m_eat)
+
+
+anova(m_wfh, m_rule6)
+anova(m_wfh,m_eat)
+anova(m_rule6,m_eat)
+
+anova(m_wfh, m_rule6, m_eat)
+```
+**ANOVA Results:**
+
+**WFH (wfh):**
+Significance: F(1, 3182) = 7.9183, p = 0.004924.
+Impact: Substantial variability in hires (mean square: 6.8923e+08).
+Conclusion: Rejecting the null hypothesis, the WFH variable significantly influences bike hires.
+
+**Rule_of_6_Indoors (rule_of_6_indoors):**
+Significance: F(1, 3182) = 61.68, p < 0.05.
+Impact: Substantial variability in hires (mean square: 5.2798e+09).
+Conclusion: Rejecting the null hypothesis, the rule_of_6_indoors variable significantly influences bike hires.
+
+**Eat_Out_to_Help_Out (eat_out_to_help_out):**
+Significance: F(1, 3182) = 20.805, p = 5.277e-06.
+Impact: Substantial variability in hires (mean square: 1.8036e+09).
+Conclusion: Rejecting the null hypothesis, the eat_out_to_help_out variable significantly influences bike hires.
+Overall Insight:
+
+Each variable (WFH, Rule_of_6_Indoors, Eat_Out_to_Help_Out) significantly influences bike hires, with substantial impact on variability. The rejection of null hypotheses emphasizes their meaningful contribution to predicting the number of hires.
+
+The Analysis of Variance (ANOVA) results reveal significant distinctions among linear models predicting bike hires. In the comparison of individual predictors:
+
+**WFH vs. Rule_of_6_Indoors:**
+Models significantly differ (F(1, 3182) = 7.9183, p = 0.004924).
+The change in Sum of Squares indicates an impact on model equivalence.
+
+**WFH vs. Eat_Out_to_Help_Out:**
+Models significantly differ (F(1, 3182) = 20.805, p = 5.277e-06).
+The change in Sum of Squares points to a meaningful shift in model equivalence.
+
+**Rule_of_6_Indoors vs. Eat_Out_to_Help_Out:**
+Models significantly differ (F(1, 3182) = 61.68, p < 0.05).
+The change in Sum of Squares suggests a substantial impact on model equivalence.
+
+**Overall Model Comparison (WFH, Rule_of_6_Indoors, Eat_Out_to_Help_Out):**
+Each predictor significantly influences bike hires.
+The ANOVA underscores the importance of these variables in predicting hiring patterns.
+
+### Multicolinearity Check w.r.t. wfh, rule of 6 indoor, and eat out to help out
+```{r, warning = FALSE}
+m.wfh.rule.eat <- lm(Hires ~ wfh * rule_of_6_indoors * eat_out_to_help_out, data = bikes)
+summary(m.wfh.rule.eat)
+
+#confidence interval.
+confint(m.wfh.rule.eat)
+
+# Check for multicollinearity using vif
+#vif(m.wfh.eat.rule)
+
+anova(m.wfh.rule.eat)
+```
+**Explanation:**
+The linear regression model predicts bike hires based on the variables wfh, rule_of_6_indoors, and eat_out_to_help_out, along with their interactions. The model coefficients indicate the estimated impact of each variable on bike hires. Notably, the interaction term wfh1:eat_out_to_help_out1 is not defined (NA), suggesting issues with collinearity or singularities. The ANOVA table shows that the main effects and interactions are collectively significant (p < 0.05), indicating that at least one of the predictors or interactions significantly influences bike hires. The R-squared value is low (2.85%), suggesting limited explanatory power in the model. The F-statistic, however, is significant (p < 2.2e-16), indicating that the model as a whole is useful in predicting bike hires.
+
+
+```{r, warning = FALSE}
+m.wfh.eat.rule_2 <- lm(Hires ~ wfh + rule_of_6_indoors + eat_out_to_help_out, data = bikes)
+summary(m.wfh.eat.rule_2)
+
+# Check for multicollinearity using vif
+vif_values <- vif(m.wfh.eat.rule_2)
+
+# Print the VIF values
+print(vif_values)
+
+anova(m.wfh.eat.rule_2)
+```
+### Summary: Effect of three schemes
+The linear regression model predicts bike hires based on the variables wfh, rule_of_6_indoors, and eat_out_to_help_out. 
+
+**Intercept Significance:**
+Intercept is significant (t(3180) = 141.650, p < 2e-16) with an estimated baseline of 28626.0 bike rentals (95% CI [28228.177, 29023.8075]).
+
+**Work From Home (wfh):**
+Significant negative effect on bike rentals (b = -1535.7, 95% CI [-2233.090, -838.254], t(3180) = -4.354, p = 1.38e-05).
+Indicates fewer bike rentals on days with work from home arrangements.
+
+**Rule of 6 Indoors:**
+Positive effect on bike rentals (b = 8513.0, 95% CI [6578.731, 10447.242], t(3180) = 8.726, p < 2e-16).
+Implies more bike rentals on days with Rule of 6 Indoors restrictions.
+
+**Eat Out to Help Out:**
+Positive effect on bike rentals (b = 7792.5, 95% CI [4310.754, 11274.118], t(3180) = 4.454, p = 8.71e-06).
+Suggests increased bike rentals on days associated with the Eat Out to Help Out scheme.
+
+**Multicollinearity Check (VIF):**
+Low multicollinearity between predictor variables: wfh (VIF = 1.052649), rule_of_6_indoors (VIF = 1.048111), eat_out_to_help_out (VIF = 1.004612).
+
+**ANOVA Results:**
+All three predictor variables (wfh, rule_of_6_indoors, eat_out_to_help_out) significantly contribute to explaining bike hire variability (p < 0.05 for all).
+Overall model is statistically significant (F(3, 3180) = 34.66, p < 2.2e-16), indicating improved fit compared to a null model.
+
+
+## Part 2
+Now Coming to our next question of whether it is appropriate to control for the effect of potential differences between different years, months, and days of the week.
+
+### Visualizing Pattern Year, Month, & Day Wise
+```{r, warning=FALSE}
+
+#Year Wise Distribution of rental bikes from 2010-2023
+ggplot(bikes, aes(x = year, y = Hires)) + geom_bar(stat = "summary", fun = "mean", aes(fill=..y..))+
+  scale_fill_viridis_c() +
+  labs(title = 'Year wise distribution',
+         x = "Year",
+         y = "Total Hires",
+         fill = "year")
+
+#Month Wise Distribution of rental bikes from 2010-2023
+ggplot(bikes, aes(x = factor(month, levels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")), y = Hires)) + geom_histogram(aes(fill=..y..),stat = "summary", fun = "mean") + scale_fill_discrete(breaks = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))+
+  scale_fill_viridis_c() +
+  labs(title = 'Month wise distribution',
+         x = "Month",
+         y = "Total Hires",
+         fill = "month")
+
+#Day Wise Distribution of rental bikes from 2010-2023
+ggplot(bikes, aes(x = factor(day, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")), y = Hires)) + geom_bar(stat = "summary", fun = "mean", aes(fill=..y..))+
+  scale_fill_discrete(breaks = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"))+
+  scale_fill_viridis_c() +
+    labs(title = 'Day wise distribution',
+         x = "Day",
+         y = "Total Hires",
+         fill = "day")
+```
+
+### Linear Model Analysis w.r.t. day, month, & year
+```{r, warning = FALSE}
+
+#LM hires w.r.t. day, month, year.
+m.hires.m <- lm(Hires ~ month, data = bikes)
+( m.hires.m.emm <- emmeans(m.hires.m, ~ month) )
+
+#Visual representation of the estimated mean number of bike rentals for each month, along with the associated uncertainty captured by the 95% confidence intervals
+ggplot(summary(m.hires.m.emm), aes(x=month, y=emmean, ymin=lower.CL, ymax=upper.CL)) + geom_point(aes(color=month) )+ geom_linerange() + labs(x="Month", y="Mean Number of Bike Rentals", subtitle="Error bars are 95% CIs")
+```
+
+
+
+### ANOVA Analysis
+```{r, warning = FALSE}
+# ANOVA or t-tests for differences across years, months, and days
+# ANOVA by year
+year_anova <- aov(Hires ~ year, data = bikes)
+summary(year_anova)
+
+# ANOVA by month
+month_anova <- aov(Hires ~ month, data = bikes)
+summary(month_anova)
+
+# ANOVA by day
+day_anova <- aov(Hires ~ day, data = bikes)
+summary(day_anova)
+
+# Regression with year, month, and day variables
+full_model <- lm(Hires ~ wfh + rule_of_6_indoors + eat_out_to_help_out + factor(year) + month + day, data = bikes)
+summary(full_model)
+```
+**Explanation**
+
+**Year-wise Distribution:**
+Year has a significant impact on bike hires (F(1, 4799) = 401.6, p < 2e-16).
+The model explains substantial variability in bike hires attributed to the year variable.
+
+**Month-wise Distribution:**
+Month significantly influences bike hires (F(11, 4789) = 242.2, p < 2e-16).
+Considerable variability in bike hires is associated with different months.
+
+**Day-wise Distribution:**
+Day of the week affects bike hires (F(6, 4794) = 42.38, p < 2e-16).
+Notable variability in bike hires is linked to different days of the week.
+
+**Overall Model (Multiple Regression):**
+The linear regression model provides insights into the key factors influencing the number of bike hires. The variable representing work-from-home (wfh) reveals a substantial decrease of 5,495 bike hires, emphasizing the notable impact of remote work on reduced bike usage. Conversely, the rule of 6 indoors (rule_of_6_indoors) is associated with an increase of 2,864 bike hires, indicating a positive effect on rental numbers when this policy is in place. However, the eat-out-to-help-out initiative (eat_out_to_help_out) does not show a statistically significant impact on bike hires, with an estimated decrease of 677 hires that does not reach significance.
+
+Examining temporal factors, the factors of year, month, and day of the week significantly influence bike rental numbers. Notably, specific months and years exhibit variations in rental figures, while particular days, including Saturdays, Sundays, and Wednesdays, are linked to fewer hires. In contrast, Mondays and certain months show increases in bike rentals.
+
+The overall model fit is robust, as indicated by the Adjusted R-squared value of 0.5712, suggesting that the included predictors collectively explain approximately 57.12% of the variance in bike hires. The F-statistic of 195.2 with a p-value less than 2.2e-16 underscores the model's statistical significance. The residual standard error is 6,349 on 4,778 degrees of freedom, providing a measure of the model's accuracy in predicting bike hires.
+
+
+```{r, warning = FALSE}
+# LM with respect to DMY.
+
+#LM 
+m.wfh.dmy <- lm(Hires ~ wfh + day + month + factor(year), data = bikes)
+( m.wfh.dmy.emm <- emmeans(m.wfh.dmy, ~ wfh) )
+(  m.wfh.dmy.contrast <- confint(pairs(m.wfh.dmy.emm))  )
+
+m.rule.dmy <- lm(Hires ~ rule_of_6_indoors + day + month + factor(year), data = bikes)
+( m.rule.dmy.emm <- emmeans(m.rule.dmy, ~ rule_of_6_indoors) )
+(  m.rule.dmy.contrast <- confint(pairs(m.rule.dmy.emm))  )
+
+m.eat.dmy <- lm(Hires ~ eat_out_to_help_out + day + month + factor(year), data = bikes)
+( m.eat.dmy.emm <- emmeans(m.eat.dmy, ~ eat_out_to_help_out) )
+(  m.eat.dmy.contrast <- confint(pairs(m.eat.dmy.emm))  )
+```
+**Main Findings:**
+
+**WFH + day + month + year**
+The analysis of work-from-home (WFH) days indicates a substantial difference in the average number of bike rentals. On days when individuals do not work from home (wfh=0), the estimated average is 27,089 (95% CI: 26,794 to 27,384), while on WFH days (wfh=1), the estimated average is 22,150 (95% CI: 21,374 to 22,925). The significant contrast between these conditions shows that there are, on average, 4,939 more bike rentals on days without work-from-home arrangements.
+
+**Rule of 6 indoor + day + month + year**
+The estimated marginal means (emmeans) for the "rule_of_6_indoors" variable reveal differences in the average number of bike rentals based on whether the "rule_of_6_indoors" policy is in effect. On days when the rule of 6 indoors is not in place (rule_of_6_indoors=0), the estimated average number of bike rentals is 25,914 (95% CI: 25,726 to 26,103). In contrast, on days when the rule of 6 indoors is implemented (rule_of_6_indoors=1), the estimated average is 26,886 (95% CI: 25,485 to 28,288). The calculated contrast indicates a difference of -972 bike rentals (95% CI: -2,388 to 443) between the two conditions, suggesting fewer bike rentals on days with the rule of 6 indoors compared to days without this policy.
+
+**Eat out to help out + day + month + year**
+The analysis of the "eat_out_to_help_out" initiative indicates a notable impact on the average number of bike rentals. On days when the initiative is not in effect (eat_out_to_help_out=0), the estimated average is 25,920 (95% CI: 25,733 to 26,107). Conversely, on days with the initiative (eat_out_to_help_out=1), the estimated average increases to 28,562 (95% CI: 26,008 to 31,116). The calculated contrast suggests a significant difference of -2,642 bike rentals (95% CI: -5,201 to -82.4) between the two conditions, indicating fewer bike rentals on days with the eat_out_to_help_out initiative compared to days without it.
+
+
+```{r, warning = FALSE}
+# Compare models using ANOVA or other model comparison techniques
+anova(m.wfh.eat.rule_2, full_model)
+```
+**Explanation for ANOVA**
+Two models are being compared: 
+
+Model 1 looks at how work-from-home, rule of 6, and Eat Out to Help Out affect the number of hires.
+Model 2 adds year, month, and day to the mix to see if they also play a role.
+Key Findings:
+
+Model 2 is significantly better at explaining the variation in hires. This means that year, month, and day have a meaningful impact on the number of hires, beyond the other factors.
+The F-test and p-value strongly support this conclusion (p-value(2.2e-16) is very small, indicating a very low chance of getting these results by random chance).
+
+In simpler terms:
+Considering year, month, and day significantly improves our ability to predict the number of hires.
+These factors play an important role in hiring patterns, along with work-from-home, rule of 6, and Eat Out to Help Out.
+
+### Summary Report: Control for Differences
+The analysis appropriately controls for potential differences between different years, months, and days of the week.
+
+Year-wise Distribution: The variable "year" significantly influences bike hires (F(1, 4799) = 401.6, p < 2e-16). This indicates that the model accounts for variations in bike hires attributed to the year variable.
+
+Month-wise Distribution: The month significantly influences bike hires (F(11, 4789) = 242.2, p < 2e-16). The model recognizes considerable variability associated with different months.
+
+Day-wise Distribution: The day of the week affects bike hires (F(6, 4794) = 42.38, p < 2e-16). The model acknowledges notable variability linked to different days of the week.
+
+Examining temporal factors, the factors of year, month, and day of the week significantly influence bike rental numbers. Notably, specific months and years exhibit variations in rental figures, while particular days, including Saturdays, Sundays, and Wednesdays, are linked to fewer hires. In contrast, Mondays and certain months show increases in bike rentals.
+
+-------------------------------------------------------------------------------------------------
+
+                                                 *END*
+
+-------------------------------------------------------------------------------------------------
+
+
+
+
+

@@ -1,0 +1,535 @@
+---
+title: "Descriptive Analysis of E-book Sales of a Publishing Company"
+author: Nazish Khan
+csl: "https://www.zotero.org/styles/harvard-cite-them-right"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    
+---
+
+-------------------------------------------------------------------------------------------------------------------
+
+# Topic: E-book Sales Data Analysis
+
+This section will examine data from an e-book a publishing company.
+The data provided contains information on e-book sales over a period of many months. Each row in
+the data represents one book. The values of the variables are taken across the entire time period, so
+daily.sales is the average number of sales (minus refunds) across all days in the period, and sale.price is the average price for which the book sold in the period.
+
+In this analysis, we will answer the following:
+Do books have more/fewer sales depending upon their average review scores and total number of
+reviews.
+What is the effect of sale price upon the number of sales, and is this different across genres?
+
+
+The data dictionary used for this analysis includes information about each variable, such as its variable name, description, and data type.
+
+| Variable        | Description                                                  | Data Type     |
+| --------------- | ------------------------------------------------------------ | ------------- |
+| sold.by         | Entity or company that sold the book                          | Character     |
+| publisher.type  | Type of publisher (indie, big five, small/medium, etc.)       | Character     |
+| genre           | Genre of the book (e.g., adult fiction, YA fiction)           | Character     |
+| avg.review      | Average review rating of the book                             | Numeric       |
+| daily.sales     | Daily sales of the book                                       | Numeric       |
+| total.reviews   | Total number of reviews for the book                           | Integer       |
+| sale.price      | Price at which the book is sold                                | Numeric       |
+
+
+
+# Loading the required libraries
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set()
+library(dplyr)
+library(ggplot2)
+library(knitr) # for table()
+library(Rmisc) # for CI()
+library(emmeans) # for emmeans() and pairs()
+library(gridExtra) # for grid.arrange()
+library(Hmisc)
+library(car)
+library(tidyverse)
+library(kableExtra)
+options(width=100)
+```
+
+
+## Load the data into books dataframe
+Review 10 records of the dataset books
+
+```{r, warning = FALSE}
+books<- read.csv("publisher_sales.csv")
+head(books,10)
+```
+
+## Data Understanding
+
+```{r, warning = FALSE}
+#Structure of the dataset
+str(books)
+
+#Summarise the dataset
+summary(books)
+
+```
+
+## Data Type Check
+
+```{r, warning = FALSE}
+#Convert the character features into factors
+books$genre <- as.factor(books$genre)
+books$publisher.type <- as.factor(books$publisher.type)
+books$sold.by <- as.factor(books$sold.by)
+
+#Check the proportions of columns genre, publisher.type, and sold.by
+table(books$genre)
+table(books$publisher.type)
+table(books$sold.by)
+```
+
+## Data Integrity and Outlier Check
+
+```{r, warning = FALSE}
+# Check for missing values
+any(is.na(books))
+
+# Check for duplicates based on all columns
+duplicated_rows <- duplicated(books)
+
+# Print rows with duplicates
+print(books[duplicated_rows, ])
+```
+There is no missing value in out dataset. Also, there are no duplicate records available in the dataset.
+
+
+## Outliers Identification and Handling
+```{r, warning = FALSE}
+grid.arrange(
+#plot the distribution of hires data
+ggplot(books) + geom_histogram(aes(x=daily.sales), binwidth = 0.1,color="lightblue") + xlab("Number of Sales") +ylab("Frequency"),
+
+# Create a boxplot for daily.sales to check for any unusual points
+ggplot(books, aes(x = 1, y = daily.sales)) +
+  geom_boxplot(fill = "lightblue") +
+  ggtitle("Boxplot: Outlier Detection for sales") +
+  xlab("") +  # Remove x-axis label
+  ylab("daily.sales"),  # Y-axis label
+ncol=2
+)
+
+```
+
+This boxplot is showing daily sales greater than 160 as outliers but those are not exactly outliers so won't be handling them here. Additionally I did further analysis by removing the records having greater value than 160, however, it didn't improve the analysis outcome so leaving them as it is. 
+
+On the other hand, we can't have daily.sales as a negative value and here we can see there is a point which is less than zero.so let's handle that.
+
+```{r, warning = FALSE}
+#Check out the records where daily.sales is negative
+remove_outliers <- books[books$daily.sales <= 0,]
+dim(remove_outliers)
+
+#Filter the dataset when daily sales is greater than zero and less than 200
+books <- books[books$daily.sales > 0 & books$daily.sales < 200,]
+#check the dimension again
+dim(books)
+
+
+#Let's create a new datafarme without daily.sales outliers for further analysis
+no_outlier <- books[!(books$daily.sales > 160),]
+
+#Remove the outliers in the daily.sales and check the dimension
+dim(books)
+
+#check the size of the daily.sales greater than 160
+dim(no_outlier)
+
+#Let's check if there is any exceptions in the average review if total reviews are zero
+total_reviews_zero <- filter(books, total.reviews == 0 & avg.review == 1)
+print(total_reviews_zero[c("avg.review", "total.reviews")])
+
+sale_price_zero <- filter(books, sale.price == 0)
+#print(sale_price_zero[c("sale.price", "daily.sales")])
+```
+So here, we have created 2 dataframe, one without outliers and second is with records less than 200 daily sales. 
+
+Assumptions to consider:
+When Total reviews are zero then average review should be zero not vice versa. There is no exceptions here.
+
+## Data Distribution and Visualisation
+```{r, warning = FALSE}
+
+#Check distribution of other columns
+grid.arrange(
+ggplot(books) + geom_histogram(aes(x=sale.price), binwidth = 0.025, color="lightblue") + xlab("Sale Price"),
+ggplot(books) + geom_histogram(aes(x=avg.review), binwidth = 0.025,color="lightblue") + xlab("Average Reviews"),
+ggplot(books) + geom_histogram(aes(x=total.reviews), binwidth = 0.7,color="lightblue") + xlab("Total Reviews"),
+ggplot(books) + geom_histogram(aes(x=sale.price), binwidth = 0.025,color="lightblue") + xlab("Sale Price")
+)
+
+#Check Outliers in terms of Average Reviews, Total Reviews, Sales.Price, and Genres
+grid.arrange(
+ggplot(books, mapping=aes(x=avg.review, y=1))+
+  geom_boxplot(fill = "lightblue")+
+  labs(title="Plot Average Reviews", x ="Avg Reviews", y=""),
+ggplot(books, mapping=aes(x=total.reviews,y=1))+
+  geom_boxplot(fill = "lightblue")+
+  labs(title="Plot Total Reviews", x ="Total Reviews", y=""),
+ggplot(books, mapping=aes(x=sale.price,y=1))+
+  geom_boxplot(fill = "lightblue")+
+  labs(title="Plot Sales Price", x ="Sales Price", y="")
+)
+```
+
+Here in the average review, quite a few points are showing out of the interquartile ranges, which doesn't mean that they will be treated as the outliers because average can be 0 to less than 4.
+
+
+## Correlation Matrix between the features of the dataset
+```{r, warning = FALSE}
+#Create the Corelation matrix with all the numeric variables
+cor_matrix <- rcorr(as.matrix(select(books, daily.sales, avg.review, total.reviews, sale.price)))
+cor_matrix
+```
+daily.sales: Correlation: Strong positive correlation (0.66) with total.reviews, moderate negative correlation (-0.51) with sale.price.
+P-Value: P-value less than 0.05, indicating a statistically significant correlation with total.reviews and sale.price. However, with avg.review, the p-value(0.1128) is greater than 0.05, showing there is no statistical significant with the feature.
+
+avg.review: Correlation: Negligible correlation with other variables.
+P-Value: P-value less than 0.05, indicating a statistically significant correlation with sale.price.
+However, with daily.sales and sale.price, the p-value(0.1128,0.6870) is greater than 0.05, showing there is no statistical significant with the features.
+
+total.reviews: Correlation: Strong positive correlation (0.66) with daily.sales, strong negative correlation (-0.54) with sale.price.
+P-Value: P-value less than 0.05, indicating a statistically significant correlation with daily.sales and sale.price.
+
+sale.price:Correlation: Moderate negative correlation (-0.51) with daily.sales, strong negative correlation (-0.54) with total.reviews.
+P-Value: P-value less than 0.05, indicating a statistically significant correlation with daily.sales and total.reviews.However, with avg.review, the p-value(0.6870) is greater than 0.05, showing there is no statistical significant with the feature.
+
+Let's test our NHST and Estimation on the given dataset
+```{r, warning = FALSE}
+
+#one sample t-test performed to assesses if sample mean significantly differs from hypothesized population mean for statistical inference.
+t.test(books$daily.sales)
+CI(books$daily.sales) # from library Rmisc
+```
+A one-sample t-test on daily book sales (t = 221.92, df = 5996, p < 2.2e-16) found a significant deviation from zero. The 95% confidence interval [85.58, 87.11] and mean 86.35 indicate a statistically different true mean, rejecting the null hypothesis.
+
+## Part 1
+### Average Reviews Impact on the Daily Sales
+```{r, warning = FALSE}
+#Plot a scatter plot for average review vs daily sales with regression line
+ggplot(books, aes(x = avg.review, y = daily.sales)) + 
+  geom_point(color="lightblue")+
+  geom_smooth()+
+  guides(alpha = "none")+
+  labs(title="Plot Sales/Average Review", x ="Average Reviews", y="Sales")
+
+# Regression analysis on 'Daily Sales' w.r.t. Average Review
+m1 <- lm(daily.sales ~ avg.review, data = books)
+summary(m1)
+( m1.emm <- emmeans(m1, ~ avg.review) )
+#(  m1.contrast <- confint(pairs(m1.emm))  )
+
+```
+Explanation:
+The linear regression analysis between daily book sales and average reviews indicates a non-significant relationship (β(coefficient) = -1.08, p = 0.113). The model has low explanatory power (R² = 0.0004), suggesting that average reviews alone poorly predict daily sales. The estimated mean sales for books with an average review of 4.27 is 86.3, with a confidence interval of 85.6 to 87.1. The intercept, representing the expected daily sales when the average review is zero, is 90.98. Overall, the relationship between average reviews and daily sales is not statistically robust, and other factors may contribute to the variability in sales. The regression line is showing a decline in the trend.
+
+Let's check whether the model is not fitting or issue caused by the outliers. 
+
+```{r, warning = FALSE}
+#Regression Analysis after removing some points out of the interquartile ranges in the daily.sales 
+m1.2 <- lm(daily.sales ~ avg.review, data = no_outlier)
+summary(m1.2)
+dim(no_outlier)
+```
+The model with the outliers removed has a non-significant relationship between daily sales and average reviews (β = -0.75, p = 0.247). Comparing it to the previous model, both show weak predictive power (R² < 0.001) and non-significant relationships. Therefore, neither model provides strong evidence that average reviews alone significantly predict daily book sales.
+
+```{r, echo=FALSE, results='hide'}
+#I will do some further test with each review from 0 to 5, to check any trend in daily sales.
+filter_review0 <- books[books$avg.review<1,]
+filter_review1 <- books[books$avg.review>=1 & books$avg.review<2,]
+filter_review2 <- books[books$avg.review>=2 & books$avg.review<3,]
+filter_review3 <- books[books$avg.review>=3 & books$avg.review<4,]
+filter_review4 <- books[books$avg.review>=4 & books$avg.review<5,]
+filter_review5 <- books[books$avg.review==5,]
+dim(filter_review5)
+grid.arrange(
+ggplot(filter_review0, aes(x = avg.review, y = daily.sales)) +
+  geom_point(aes(color=avg.review)) +
+  ggtitle("avg.review 0-1 vs daily.sales"),
+ggplot(filter_review1, aes(x = avg.review, y = daily.sales)) +
+  geom_point(aes(color=avg.review)) +
+  ggtitle("avg.review 1-2 vs daily.sales"),
+ggplot(filter_review2, aes(x = avg.review, y = daily.sales)) +
+  geom_point(aes(color=avg.review)) +
+  ggtitle("avg.review 2-3 vs daily.sales"),
+ggplot(filter_review3, aes(x = avg.review, y = daily.sales)) +
+  geom_point(aes(color=avg.review)) +
+  ggtitle("avg.review 3-4 vs daily.sales"),
+ggplot(filter_review4, aes(x = avg.review, y = daily.sales)) +
+  geom_point(aes(color=avg.review)) +
+  ggtitle("avg.review 4-5 vs daily.sales"))
+
+# model3 <- lm(daily.sales ~ avg.review, data = filter_review4)
+# model4 <- lm(daily.sales ~ avg.review, data = filter_review3)
+# summary(model3)$coefficients[, "Pr(>|t|)"]
+# summary(model4)$coefficients[, "Pr(>|t|)"]
+```
+
+
+```{r, warning=FALSE}
+#anova(m.sales.baseline, m1)
+
+## The estimation approach to regression coefficients
+
+#We can use `coef()` to get the coefficients and `confint()` to get confidence intervals for our coefficients
+
+cbind(coefficient=coef(m1), confint(m1))
+
+```
+Intercept (90.98): The estimated baseline daily sales when avg.review is zero. The 95% confidence interval for the intercept is [85.20, 96.75].
+
+avg.review (-1.08): The estimated change in daily sales for a one-unit increase in avg.review. The 95% confidence interval for this coefficient is [-2.43, 0.26]. Since the confidence interval includes zero, the effect of avg.review is not statistically significant at a conventional significance level of 0.05.
+
+
+### Regression Analysis on Daily Sales in respect of Total Reviews
+```{r, warning = FALSE}
+#Scatter Plot of Daily Sales vs Total Reviews
+ggplot(books, aes(x = total.reviews, y = daily.sales)) + 
+  geom_point(color="lightblue")+
+  geom_smooth()+
+  guides(alpha = "none")+
+  labs(title="Plot Sales/Total Reviews", x ="Total Reviews", y="Sales")
+
+# Linear regression model for Daily Sales vs. Total Number of Reviews
+m2 <- lm(daily.sales ~ total.reviews, data = books)
+summary(m2)
+( m2.emm <- emmeans(m2, ~ total.reviews) )
+#(  m2.contrast <- confint(pairs(m2.emm))  )
+```
+
+Intercept (16.51): The estimated baseline daily sales when total.reviews is zero. The 95% confidence interval for the intercept is [85.8, 86.9].
+
+total.reviews (0.53): The estimated change in daily sales for a one-unit increase in total.reviews. The 95% confidence interval for this coefficient is [0.29, 0.29]. This suggests that, on average, an increase in the total number of reviews is associated with an increase in daily sales. The p-value is highly significant, indicating a strong association between total.reviews and daily.sales.
+
+```{r, warning = FALSE}
+#Let's run anova function as well with the base line
+m.sales.baseline <- lm(daily.sales~1, data = books)
+summary(m.sales.baseline)
+
+anova(m.sales.baseline, m1)
+anova(m.sales.baseline, m2)
+```
+The analysis comprises two models:
+
+Model 1 (Baseline): Predicting daily.sales solely with an intercept.
+
+Residual Sum of Squares (RSS): 5443485
+Degrees of Freedom (Res.Df): 5996
+Model 2 (Enhanced): Predicting daily.sales with additional predictors (avg.review or total.reviews).
+
+For avg.review:
+Residual Sum of Squares (RSS): 5441203
+Degrees of Freedom (Res.Df): 5995
+F-statistic: 2.51, p-value: 0.1128 (insufficient evidence of improvement)
+For total.reviews:
+Residual Sum of Squares (RSS): 3071618
+Degrees of Freedom (Res.Df): 5995
+F-statistic: 4629.3, p-value: < 2.2e-16 (indicating significant enhancement)
+The F-statistic and p-value aid in evaluating whether the inclusion of predictors significantly enhances the model compared to the baseline. The results suggest that total.reviews contributes significantly, whereas avg.review does not.
+
+
+### Analysis on Daily Sales w.r.t Total Reviews and Average Review
+```{r, warning = FALSE}
+m3 <- lm(daily.sales ~ avg.review * total.reviews, data = books)
+summary(m3)
+( m3.emm <- emmeans(m3, ~ avg.review * total.reviews) )
+
+#(  m3.contrast <- confint(pairs(m3.emm))  )
+
+#confidence interval.
+confint(m3)
+
+# Check for multicollinearity using vif
+#vif(m3)
+
+anova(m3)
+```
+In the multiple linear regression model assessing daily.sales with avg.review and total.reviews, the following key points emerge:
+
+Main Effects:
+
+avg.review: A negative association, suggesting that an increase in average reviews corresponds to a decrease in daily sales by approximately 14.62 units.
+total.reviews: Positively influences daily sales, indicating that each additional review contributes to an increase of about 0.14 units.
+
+Interaction Effect:
+
+The interaction term (avg.review:total.reviews) exhibits a significant positive impact, implying that the combined influence of both avg.review and total.reviews enhances their effect on daily.sales.
+
+Model Fit:
+
+The overall model is highly significant (F-statistic: 1673, p < 2.2e-16), indicating that the combination of predictors significantly improves the ability to predict daily.sales.
+These findings underscore the nuanced interplay between avg.review and total.reviews in influencing daily.sales.
+
+Emmeans Result:
+
+The statistical model predicts an average review score of 86.2 based on 133 reviews, with a 95% confidence interval between 85.6 and 86.7. The baseline prediction falls between 67.86 and 84.15. Each additional review is associated with an increase in the predicted average review by about 0.076 to 0.206. There is a positive interaction effect between the average review score and the total number of reviews, with an estimated coefficient of 0.0797 and a 95% confidence interval ranging from 0.0797 to 0.1104. This suggests that the influence of the average review on the outcome may vary depending on the total number of reviews.
+
+
+### Summary
+To answer the question "Do books have more/fewer sales depending upon their average review scores and total number of reviews?"
+
+From the regression analysis on both the parameters, we can conclude that Average Review only doesn't have a significant impact on the daily sales. However, Total Reviews do increase the daily sales with the increment in the reviews on the book(Coefficient: 0.52 and p-value: 2.2e-16).
+
+Multiple Regression has showing that both of the attributes together have a significant impact on the daily sales.
+
+## Part 2
+##What is the effect of sale price upon the number of sales, and is this different across genres?
+### Daily Sales distribution w.r.t sale price & genre
+```{r, warning = FALSE}
+grid.arrange(
+#Scatter Plot of Daily Sales vs Average Reviews and Daily Sales vs Total Reviews
+ggplot(books, aes(x = sale.price, y = daily.sales,  alpha=0.86)) + 
+  geom_point(aes(color = genre))+
+  geom_smooth()+
+  guides(alpha = "none")+
+  scale_color_manual(values = c("lightblue", "blue", "darkgrey")) +
+  labs(title="Plot Sales/Price", x ="Sale Price", y="Sales"),
+
+#Plot a density plot to check the distributon od the daily sales by genres: adult fictioon, non-fiction, and YA fiction
+ggplot(books, aes(x = daily.sales, fill = genre, alpha=0.5)) +
+  geom_density(aes(y= ..count..)) +
+   guides(alpha = "none")+
+  labs(title = "Density Plot of Daily Sales by Genre", x = "Daily Sales", y = "Count") +
+  scale_fill_manual(values = c("lightblue", "blue", "darkgrey")) +  # Set custom fill colors
+  theme_minimal()
+)
+```
+
+
+### Simple Regression on sale price and sales
+```{r, warning = FALSE}
+m_sale_price <- lm(daily.sales ~ sale.price, data = books)
+summary(m_sale_price)
+
+(  confint(m_sale_price)  )
+```
+*Sale Price has been significant(p-value: 2.2e-16) in the daily sales of the books as it is showing with a unit increment in the sale price, there is a decrease of 3.97 units in sales with a 95% confidence interval of [-4.149,-3.808]*
+
+Linear Regression Model (lm):
+
+Examines the relationship between daily sales and sale price.
+Significant negative association (Coefficient = -3.97143, p < 2e-16).
+For every unit increase in sale price, daily sales decrease by approximately 3.97 units.
+Intercept (127.24836) represents estimated daily sales when the sale price is zero.
+Good model fit (R-squared = 0.2591).
+Highly significant F-statistic (p < 2.2e-16), indicating overall model significance.
+
+Confidence Intervals (confint):
+
+95% confidence intervals for coefficients:
+Intercept: (125.378238, 129.11849)
+Sale price: (-4.141459, -3.80141)
+The intervals do not include zero, supporting the significance of intercept and sale price coefficients in predicting daily sales.
+
+### Simple Regression on sale price and genre
+Now to check impact of genres over daily sales:
+```{r, warning = FALSE}
+m_genre <- lm(daily.sales ~ genre, data = books)
+summary(m_genre)
+
+(  confint(m_genre)  )
+aov(daily.sales ~ genre, data = books)
+
+anova(m_genre)
+```
+This linear model (LM) examines the influence of book genre on daily sales, with three levels: adult Fiction, Non-Fiction, and YA Fiction. Results reveal significant effects, for the reference "Adult Fiction" genre, the model predicts an average daily sales of approximately 82.55 units, also indicating that Non-Fiction decreases daily sales by 19.05 units (p < 2e-16), while YA Fiction increases daily sales by 30.48 units (p < 2e-16). The LM exhibits a good fit (R-squared: 0.458), and the analysis of variance (ANOVA) underscores the significance of genre in explaining the variability in daily sales (F-value: 2534.3, p < 2.2e-16). In conclusion, book genre significantly impacts daily sales, providing actionable insights for marketing and sales strategies.
+
+### Check multicolinearity in our predictors sale price and genre
+```{r, warning = FALSE}
+m4 <- lm(daily.sales ~ sale.price * genre, data = books)
+summary(m4)
+
+#confidence interval.
+confint(m4)
+
+# Check for multicollinearity using vif
+#vif(m4)
+aov(m4)
+
+```
+The regression model for daily sales includes significant effects:
+
+Intercept: 88.21
+Sale Price: Negative impact (-0.71, p=0.004)
+Genre Effects:
+Non-fiction: Decreases sales significantly (-23.63, p<0.001)
+YA Fiction: Increases sales significantly (52.82, p<0.001)
+Interaction Effects:
+Sale Price & Non-fiction: Marginally significant (0.64, p=0.065)
+Sale Price & YA Fiction: Significant negative impact (-2.81, p<0.001)
+Model Fit: R-squared=0.477, F-statistic=1093 (p<0.001)
+The findings emphasize the nuanced influence of sale price, genre, and their interactions on daily sales.
+
+
+### Model comparison using ANOVA
+```{r, warning = FALSE}
+m5 <- lm(daily.sales ~ sale.price + genre, data = books)
+summary(m5)
+
+#confidence interval.
+confint(m5)
+
+# Check for multicollinearity using vif
+vif(m5)
+aov(m5)
+
+#compare model with interaction and without interaction
+anova(m4,m5)
+```
+LM Model Explaination:
+Intercept: 93.91
+Sale Price: Negative impact (-1.43, p<0.001)
+Genre Effects:
+Non-fiction: Decreases sales significantly (-9.06, p<0.001)
+YA Fiction: Increases sales significantly (30.44, p<0.001)
+Model Fit: R-squared=0.4671, F-statistic=1751 (p<0.001)
+This model suggests that sale price and genre both play crucial roles in influencing daily sales, providing valuable insights for strategic decision-making.
+
+The 95% confidence intervals for the coefficients in the regression model are as follows:
+
+Intercept: Between 91.49 and 96.34
+Sale Price: Between -1.70 and -1.15
+Genre Non-fiction: Between -11.45 and -6.68
+Genre YA Fiction: Between 29.08 and 31.81
+
+VIF Analysis:
+The GVIF values for sale.price and genre are both 3.75, and their respective GVIF^(1/(2Df)) values are approximately 1.94 and 1.39. These values indicate that there is a moderate level of multicollinearity in the model.
+
+AOV Results:
+The ANOVA for model m5 reveals significant contributions from sale price and genre. Residuals, indicating unexplained variance, amount to 2,900,974 with 5,993 degrees of freedom. The estimated residual standard error is approximately 22.00137, and caution is advised due to the possibility of unbalanced predictor variable distributions.
+
+ANOVA Results:
+ANOVA compares two models for daily sales in the books dataset.
+Model 1: Predicts daily sales with the interaction of sale price and genre.
+Model 2: Predicts daily sales with additive effects of sale price and genre.
+Results show a significant difference (F = 56.632, p < 2.2e-16) between the models. Including the interaction term improves model fit, emphasizing its role in explaining daily sales variability.
+
+### Summary
+
+Sale Price Impact: The negative coefficient for sale price across various models suggests that an increase in sale price is associated with a decrease in daily sales. This aligns with economic intuition, where higher prices often lead to reduced demand.
+
+Genre Influence: The genre variable, with non-fiction and YA fiction as categories, significantly affects daily sales. Non-fiction negatively impacts sales, while YA fiction has a positive impact. This could indicate varying audience preferences and market dynamics.
+
+Interaction Insight: The interaction term between sale price and genre uncovers nuanced effects. It signifies that the relationship between sale price and daily sales differs based on the genre, adding a layer of sophistication to the analysis.
+
+Model Comparison: The F-statistic from ANOVA highlights that the interaction model outperforms the additive model, emphasizing the importance of considering the joint effect of sale price and genre.
+
+Predictive Power: Despite the complexity introduced by interaction terms, these models demonstrate a relatively high predictive power, capturing a substantial portion of the variability in daily sales.
+
+This comprehensive analysis provides actionable insights for stakeholders in the book industry, allowing for informed decision-making and strategic planning. Understanding how sale price and genre interact can guide pricing strategies and marketing efforts to optimize daily sales in the dynamic book market.
+
+
+-------------------------------------------------------------------------------------------------
+
+                                                 *END*
+
+-------------------------------------------------------------------------------------------------
